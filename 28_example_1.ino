@@ -158,7 +158,12 @@ void loop() {
     error_curr = dist_ema - _DIST_TARGET;
     pterm = _KP * error_curr;  // [3099]
     dterm = _KD * (error_curr - error_prev);
-   // iterm 설정
+   //===============iterm 설정===============
+   // 244~264mm : iterm += _KI*control
+   // 245, 265 : iterm /= 4
+   // 235~244, 266~275mm : iterm += 0.5*_KI*control
+   // ~234, 276~ : iterm = 0
+   //=======================================
     if (-10<error_curr & error_curr<10)iterm += _KI * error_curr;
     else if ((int)error_curr == 10 | (int)error_curr == -10) iterm /= 4;
     else if (-20<=error_curr & error_curr<=20) iterm += 0.5 * _KI * error_curr;
@@ -176,7 +181,6 @@ void loop() {
     else if(duty_target > _DUTY_MIN) duty_target = _DUTY_MIN;
 
     error_prev = error_curr;
-
   }
   
   if(event_servo) {
@@ -185,15 +189,11 @@ void loop() {
   // adjust duty_curr toward duty_target by duty_chg_per_interval
     if(duty_target>duty_curr) {
       duty_curr += duty_chg_per_interval_down;
-      if(duty_target < duty_curr){
-        duty_curr = duty_target;
-      }
+      if(duty_target < duty_curr)duty_curr = duty_target;
     }
     else if (duty_target<duty_curr){
       duty_curr -= duty_chg_per_interval_up;
-      if(duty_target > duty_curr){
-        duty_curr = duty_target;
-      }
+      if(duty_target > duty_curr) duty_curr = duty_target;
     }
     // update servo position
     myservo.writeMicroseconds(duty_curr);
@@ -259,7 +259,7 @@ float ir_distance_filtered(void){
     if (currReading < lowestReading) { lowestReading = currReading; }
   }
 
-  // eam 필터 추가
+  // ema 필터 추가
   dist_ema = _DIST_ALPHA*lowestReading + (1-_DIST_ALPHA)*dist_ema;
 
   if (dist_ema>_DIST_MAX) dist_ema=_DIST_MAX;
