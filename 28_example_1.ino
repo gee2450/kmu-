@@ -18,10 +18,6 @@
 #define _DIST_MAX 400 //[3117] 거리 최대값
 
 
-// Distance sensor
-#define _DIST_ALPHA 0.35  //[3099] EMA 필터링을 위한 alpha 값
-#define _SENSOR_ALPHA 0.6
-
 // Servo range
 #define _DUTY_MIN 1880                 //[3100] 최저 서보 위치
 #define _DUTY_NEU 1520                 //[3100] 중립 서보 위치
@@ -40,16 +36,19 @@
 
 
 // PID parameters
-#define _KP 0.8
-#define _KI 0.007
+#define _KP 0.75
+#define _KI 0.075
 #define _KD 100
-// 0.75, 0.007, 120
-// iterm 최대값
-#define _ITERM_MAX 500
+#define _ITERM_MAX 500 // iterm 최대값
 
 
-// 적외선 센서 노이즈 보정
+// distance sensor
 #define DELAY_MICROS  1500 // under_noise_filter 때 delay time
+#define _DIST_ALPHA 0.35
+
+
+// Duty value ema
+#define _SENSOR_ALPHA 0.6
 
 
 //////////////////////
@@ -76,8 +75,7 @@ bool event_dist, event_servo, event_serial;
 // Servo speed control
 int duty_chg_per_interval_up, duty_chg_per_interval_down; // [3116] 주기 당 서보 duty값 변화량
 int duty_chg_per_interval_up_max, duty_chg_per_interval_down_max;
-int duty_target, duty_curr, duty_ema; //[1928] 목표 위치와 현재 위치
-int duty_val;
+int duty_target, duty_curr; //[1928] 목표 위치와 현재 위치
 
 
 // PID variables
@@ -159,20 +157,19 @@ void loop() {
   // PID control logic
     error_curr = dist_ema - _DIST_TARGET;
     pterm = _KP * error_curr;  // [3099]
-    iterm += _KI * error_curr;
     dterm = _KD * (error_curr - error_prev);
-
-    if (iterm*error_curr<0) iterm /= 2;
-    
+   // iterm 설정
+    if (-10<error_curr & error_curr<10)iterm += _KI * error_curr;
+    else if ((int)error_curr == 10 | (int)error_curr == -10) iterm /= 4;
+    else if (-20<=error_curr & error_curr<=20) iterm += 0.5 * _KI * error_curr;
+    else iterm = 0;
+   // keep iterm within the range of [-_ITERM_MAX, _ITERM_MAX]
     if (iterm>=_ITERM_MAX) iterm = _ITERM_MAX;
     else if (iterm<= -_ITERM_MAX) iterm = -_ITERM_MAX;
-    
-    control = pterm + iterm + dterm;
-    //control = map(control,-1100,1100,-350,350);
 
-    duty_val = _DUTY_NEU - control;
+    control = pterm + iterm + dterm;
     
-    duty_target = sensor_filtered(duty_val);
+    duty_target = sensor_filtered(_DUTY_NEU - control); // 제 코드 duty : 최대<최소 여서 '-' 했습니다. 
 
   // keep duty_target value within the range of [_DUTY_MIN, _DUTY_MAX]
     if(duty_target < _DUTY_MAX) duty_target = _DUTY_MAX;
@@ -204,10 +201,12 @@ void loop() {
 
 
    if(event_serial) {
-    event_serial = false; //[3117] // 이거 맞나요? // 저도 이렇게 했어요
-    // 아래 출력문은 수정없이 모두 그대로 사용하기 바랍니다.
+    event_serial = false; //[3117]
+   // dterm = _KD * (error_curr - error_prev)
+   // keep dterm within the range of [0, 800]
     if (map(dterm,-1000,1000,510,610)<0 | map(dterm,-1000,1000,510,610)>800) dterm = 0;
     
+    // 아래 출력문은 수정없이 모두 그대로 사용하기 바랍니다.
     Serial.print("IR:");
     Serial.print(dist_ema);
     Serial.print(",T:");
@@ -232,14 +231,15 @@ float ir_distance(void){ // return value unit: mm
   float val;
   float volt = float(analogRead(PIN_IR));
   val = ((6762.0/(volt-9.0))-4.0) * 10.0;
-
+ // 추헌준님 코드. 적외선 센서 값 그래프가 일직선이 되도록 보정해주는 코드
   val = coE[0] * pow(val, 3) + coE[1] * pow(val, 2) + coE[2] * val + coE[3];
-
   return val;
 }
 //[3099]
 
 // ================
+// 박우혁님 코드.
+// 위, 아래로 튀는 값들을 잡아주는 코드
 float under_noise_filter(void){
   int currReading;
   int largestReading = 0;
@@ -267,7 +267,7 @@ float ir_distance_filtered(void){
 }
 //===================================================
 
-
+// sensor value ema.
 float sensor_filtered(float sensor_val){
   return _SENSOR_ALPHA * sensor_val + (1 - _SENSOR_ALPHA) * duty_target;
 }
